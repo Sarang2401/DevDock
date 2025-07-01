@@ -25,17 +25,16 @@ This monorepo contains the backend (Python Flask/FastAPI) and frontend (Next.js)
 
 1.  **Clone the repository:**
     ```bash
-    git clone [https://github.com/your-github-username/my-monorepo-internship.git](https://github.com/your-github-username/my-monorepo-internship.git)
-    cd my-monorepo-internship
+    git clone [https://github.com/Sarang2401/DevDock.git]
+    cd DevDock
     ```
 
 2.  **Backend Setup:**
     ```bash
     cd backend
-    pip install -r requirements.txt # (We'll create this later)
-    python app.py # (We'll create this later)
+    pip install -r requirements.txt 
+    python app.py 
     ```
-    (Add more specific instructions later once you build the backend)
 
 3.  **Frontend Setup:**
     ```bash
@@ -43,7 +42,7 @@ This monorepo contains the backend (Python Flask/FastAPI) and frontend (Next.js)
     npm install # or yarn install (if you use yarn)
     npm run dev # or yarn dev
     ```
-    (Add more specific instructions later once you build the frontend)
+    
 
 ## Branching Strategy (Git Flow Lite)
 
