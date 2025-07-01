@@ -83,3 +83,6 @@ When `develop` is stable and ready for a release:
 1.  A Pull Request is opened from `develop` to `main`.
 2.  After review and approval, this PR is merged.
 3.  Merging into `main` triggers a production deployment.
+
+### Author
+Made with 💻 by Sarang Shigwan
