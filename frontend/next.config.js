@@ -1,14 +1,17 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  reactStrictMode: true,
   async rewrites() {
+    // Use an environment variable for the backend URL
+    const backendUrl = process.env.NEXT_PUBLIC_BACKEND_URL || 'http://localhost:5000'; // Fallback for local
     return [
       {
         source: '/api/health',
-        destination: 'http://localhost:5000/health', // This will be the backend service name in Docker/ECS
+        destination: `${backendUrl}/health`,
       },
       {
         source: '/api/message-from-backend',
-        destination: 'http://localhost:5000/api/message', // This will be the backend service name in Docker/ECS
+        destination: `${backendUrl}/api/message`,
       },
     ];
   },

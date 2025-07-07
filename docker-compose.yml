@@ -1,0 +1,27 @@
+# docker-compose.yml
+version: '3.8'
+services:
+  backend:
+    build: ./backend
+    ports:
+      - "5000:5000"
+    environment:
+      # No specific env vars needed for backend now, but good to have
+      PYTHONUNBUFFERED: 1 # Important for seeing Python logs in Docker
+    networks:
+      - app-network
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_BACKEND_URL: http://backend:5000 # Use service name for inter-container communication
+    depends_on:
+      - backend
+    networks:
+      - app-network
+
+networks:
+  app-network:
+    driver: bridge
