@@ -1,0 +1,145 @@
+# .github/workflows/ci-cd.yml
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches:
+      - develop # Trigger on pushes to the develop branch
+      - main    # Trigger on pushes to the main branch (for deployment later)
+  pull_request:
+    branches:
+      - develop # Trigger on PRs targeting develop for testing
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python for Backend
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Install Backend dependencies
+        working-directory: ./backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run Backend Unit Tests
+        working-directory: ./backend
+        run: pytest
+
+      - name: Set up Node.js for Frontend
+        uses: actions/setup-node@v4
+        with:
+          node-version: '18'
+
+      - name: Install Frontend dependencies
+        working-directory: ./frontend
+        run: npm install
+
+      - name: Run Frontend E2E Tests (with Cypress)
+        # This step requires both backend and frontend to be running
+        # We'll use Docker Compose to bring them up for testing
+        working-directory: ./
+        run: |
+          docker-compose up --build -d # Build and run services in detached mode
+          npm install -g wait-on # Install wait-on globally
+          wait-on http://localhost:3000 # Wait for frontend to be available
+          wait-on http://localhost:5000/health # Wait for backend to be healthy
+          docker exec $(docker-compose ps -q frontend) npm run cypress:run # Run Cypress inside the frontend container
+        env:
+          # Ensure frontend env var points to the backend service name within Docker Compose network
+          NEXT_PUBLIC_BACKEND_URL: http://backend:5000
+
+      - name: Log in to AWS ECR
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1 # Replace with your preferred AWS region
+
+      - name: Get Backend ECR Repository URI
+        id: backend_ecr
+        run: |
+          REPO_URI=$(aws ecr describe-repositories --repository-names my-backend-repo --query 'repositories[0].repositoryUri' --output text || echo "create")
+          if [ "$REPO_URI" = "create" ]; then
+            aws ecr create-repository --repository-name my-backend-repo
+            REPO_URI=$(aws ecr describe-repositories --repository-names my-backend-repo --query 'repositories[0].repositoryUri' --output text)
+          fi
+          echo "repo_uri=$REPO_URI" >> $GITHUB_OUTPUT
+        env:
+          AWS_REGION: ap-south-1 # Replace with your preferred AWS region
+
+      - name: Build and Push Backend Docker Image to ECR
+        working-directory: ./backend
+        run: |
+          docker build -t my-backend-api .
+          docker tag my-backend-api:latest ${{ steps.backend_ecr.outputs.repo_uri }}:${{ github.sha }}
+          docker push ${{ steps.backend_ecr.outputs.repo_uri }}:${{ github.sha }}
+          # Also push with latest tag for easier reference
+          docker tag my-backend-api:latest ${{ steps.backend_ecr.outputs.repo_uri }}:latest
+          docker push ${{ steps.backend_ecr.outputs.repo_uri }}:latest
+        env:
+          AWS_REGION: ap-south-1
+
+      - name: Get Frontend ECR Repository URI
+        id: frontend_ecr
+        run: |
+          REPO_URI=$(aws ecr describe-repositories --repository-names my-frontend-repo --query 'repositories[0].repositoryUri' --output text || echo "create")
+          if [ "$REPO_URI" = "create" ]; then
+            aws ecr create-repository --repository-name my-frontend-repo
+            REPO_URI=$(aws ecr describe-repositories --repository-names my-frontend-repo --query 'repositories[0].repositoryUri' --output text)
+          fi
+          echo "repo_uri=$REPO_URI" >> $GITHUB_OUTPUT
+        env:
+          AWS_REGION: ap-south-1 # Replace with your preferred AWS region
+
+      - name: Build and Push Frontend Docker Image to ECR
+        working-directory: ./frontend
+        run: |
+          docker build -t my-frontend-app .
+          docker tag my-frontend-app:latest ${{ steps.frontend_ecr.outputs.repo_uri }}:${{ github.sha }}
+          docker push ${{ steps.frontend_ecr.outputs.repo_uri }}:${{ github.sha }}
+          # Also push with latest tag for easier reference
+          docker tag my-frontend-app:latest ${{ steps.frontend_ecr.outputs.repo_uri }}:latest
+          docker push ${{ steps.frontend_ecr.outputs.repo_uri }}:latest
+        env:
+          AWS_REGION: ap-south-1
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: build-and-test # This job depends on build-and-test successfully completing
+    if: github.ref == 'refs/heads/main' # Only deploy if merged into main
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ap-south-1 # Replace with your preferred AWS region
+
+      - name: Install Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.x
+
+      - name: Initialize Terraform
+        run: terraform init
+        working-directory: ./terraform # We'll create this directory in the next phase
+
+      - name: Apply Terraform (Deploy)
+        run: terraform apply -auto-approve
+        working-directory: ./terraform
+        env:
+          # Pass ECR image URIs to Terraform (Terraform will need to consume these as variables)
+          # We'll fetch the current latest tag for simplicity in this example.
+          # In a real setup, you might pass the specific GITHUB_SHA.
+          TF_VAR_backend_image_uri: ${{ steps.backend_ecr.outputs.repo_uri }}:latest
+          TF_VAR_frontend_image_uri: ${{ steps.frontend_ecr.outputs.repo_uri }}:latest
